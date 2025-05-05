@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 nalgebra = "0.32"
+nalgebra-sparse = "0.1"
+del-ls = "0.1"

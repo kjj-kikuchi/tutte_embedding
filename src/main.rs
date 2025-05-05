@@ -1,7 +1,12 @@
 use std::env;
 use std::process;
+extern crate nalgebra as na;
 
-mod mesh;
+pub mod file_io;
+pub mod halfedge;
+pub mod mesh;
+pub mod tutte_embedding;
+
 use mesh::Mesh;
 
 fn main() {
@@ -15,7 +20,8 @@ fn main() {
 
     println!("{}", filename);
 
-    let mesh = Mesh::from_obj(filename);
+    let mut mesh = Mesh::from_obj(filename);
+    mesh.construct_halfedge_list();
 
     println!("Vertices : {}", mesh.vertices.len());
     println!("Faces : {}", mesh.faces.len());

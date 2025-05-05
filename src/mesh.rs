@@ -1,10 +1,13 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use crate::halfedge::Halfedge;
+use std::collections::BTreeMap;
 
 pub struct Mesh {
-    pub vertices: Vec<nalgebra::Vector3<f64>>,
-    pub faces: Vec<nalgebra::Vector3<i32>>,
-    pub normal_vertex: Vec<nalgebra::Vector3<f64>>,
+    pub vertices: Vec<na::Vector3<f64>>,
+    pub faces: Vec<na::Vector3<usize>>,
+    pub normal_vertex: Vec<na::Vector3<f64>>,
+
+    pub halfedges: Vec<Halfedge>,
+    pub h_out: Vec<usize>
 }
 
 impl Mesh {
@@ -12,64 +15,77 @@ impl Mesh {
         let vertices = Vec::new();
         let faces = Vec::new();
         let normal_vertex = Vec::new();
+        let halfedges = Vec::new();
+        let h_out = Vec::new();
         Mesh {
             vertices,
             faces,
             normal_vertex,
+            halfedges,
+            h_out
         }
     }
 
-    pub fn from_obj(filename: &String) -> Mesh {
-        // ファイルを開く
-        let file = File::open(filename).expect("file not found");
-        let reader = BufReader::new(file);
+    pub fn construct_halfedge_list(&mut self) {
+        // h_oppを計算
+        let mut he_map = BTreeMap::new();
 
-        let mut mesh = Mesh::new();
+        for i in 0..self.faces.len() {
+            for j in 0..3 {
+                let mut he = Halfedge::new(3 * i + j);
 
-        // 行ごとに処理
-        for line in reader.lines() {
-            let line = line.expect("Failed to read line.");
-            let line = line.trim();
+                let key      = (he.v_src(&self.faces), he.v_tgt(&self.faces));
+                let key_swap = (he.v_tgt(&self.faces), he.v_src(&self.faces));
 
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            let tokens: Vec<&str> = line.split_whitespace().collect();
-
-            match tokens[0] {
-                "v" => {
-                    if let (Ok(x), Ok(y), Ok(z)) = (
-                        tokens[1].parse::<f64>(),
-                        tokens[2].parse::<f64>(),
-                        tokens[3].parse::<f64>(),
-                    ) {
-                        mesh.vertices.push(nalgebra::Vector3::new(x, y, z));
+                match he_map.get(&key_swap) {
+                    Some(&opp_idx) => {
+                        he.h_opp = opp_idx as isize;
+                        self.halfedges[opp_idx as usize].h_opp = (3 * i + j) as isize;
+                    }
+                    None => {
+                        he_map.insert(key, 3 * i + j);
                     }
                 }
-                "vn" => {
-                    if let (Ok(x), Ok(y), Ok(z)) = (
-                        tokens[1].parse::<f64>(),
-                        tokens[2].parse::<f64>(),
-                        tokens[3].parse::<f64>(),
-                    ) {
-                        mesh.normal_vertex.push(nalgebra::Vector3::new(x, y, z));
-                    }
-                }
-                "f" => {
-                    let mut indices = Vec::new();
 
-                    for i in 1..=3 {
-                        let parts: Vec<&str> = tokens[i].split("//").collect();
-                        if let Ok(idx) = parts[0].parse::<i32>() {
-                            indices.push(idx-1);
-                        }
-                    }
-                    mesh.faces.push(nalgebra::Vector3::new(indices[0], indices[1], indices[2]));
-                }
-                _ => {} // do nothing
+                self.halfedges.push(he);
             }
         }
-        mesh
+
+        // h_outを計算
+        // 境界頂点の場合は境界半辺を保存
+        self.h_out.resize(self.vertices.len(), 0);
+        for (i, he) in self.halfedges.iter().enumerate() {
+            if self.halfedges[self.h_out[he.v_src(&self.faces)]].is_not_boundary() {
+                self.h_out[he.v_src(&self.faces)] = i;
+            }
+        }
+
+        // 境界半辺の h_opp に次の境界半辺を保存
+        // boundary_he_1.h_opp = - boundary_he_2 - 1
+        for &ho in &self.h_out {
+            if self.halfedges[ho].is_boundary() {
+                let vt = self.halfedges[ho].v_tgt(&self.faces);
+                let out_he = self.h_out[vt] as isize;
+                self.halfedges[ho].h_opp = -out_he - 1;
+            }
+        }
+    }
+
+    pub fn h_cw(&self, index: isize) -> isize {
+        if index < 0 {
+            index
+        } else if self.halfedges[index as usize].h_opp < 0 {
+            self.halfedges[index as usize].h_opp
+        } else {
+            self.halfedges[self.halfedges[index as usize].h_opp as usize].h_next() as isize
+        }
+    }
+
+    pub fn h_ccw(&self, index: isize) -> isize {
+        if index < 0 {
+            index
+        } else {
+            self.halfedges[self.halfedges[index as usize].h_prev()].h_opp
+        }
     }
 }

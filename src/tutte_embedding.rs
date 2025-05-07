@@ -6,7 +6,7 @@ use nalgebra_sparse::{
 
 use std::{collections::BTreeSet, f64::consts::PI};
 
-fn calc_vertices_digee(mesh: &Mesh) -> Vec<usize> {
+fn calc_vertices_digree(mesh: &Mesh) -> Vec<usize> {
     let mut digree: Vec<usize> = vec![0; mesh.vertices.len()];
 
     for he in &mesh.halfedges {
@@ -19,7 +19,8 @@ fn calc_vertices_digee(mesh: &Mesh) -> Vec<usize> {
     digree
 }
 
-fn compute_max_length_boundary_vertices(mesh: &Mesh) -> Vec<usize> {
+// fn compute_longest_boundary_cycle_vertices(mesh: &Mesh) -> BTreeSet<usize> {
+fn compute_longest_boundary_cycle_halfedges(mesh: &Mesh) -> BTreeSet<usize> {
     // 境界ハーフエッジを保存するセット
     let mut boundary_he: BTreeSet<usize> = mesh
         .halfedges
@@ -29,48 +30,41 @@ fn compute_max_length_boundary_vertices(mesh: &Mesh) -> Vec<usize> {
         .map(|(i, _)| i)
         .collect();
 
-    let mut max_boundary_vertices = Vec::new();
+    // let mut max_boundary_vertices = BTreeSet::new();
+    let mut longest_boundary_cycle_he = BTreeSet::new();
     let mut max_boundary_len = 0.0;
 
     // boundary_he　が空になるまで
     while let Some(&he_start) = boundary_he.iter().next() {
-        let mut boundary_v = Vec::new(); // 1つの境界サイクルの頂点集合
+        let mut boundary_cycle_he = BTreeSet::new(); // 1つの境界サイクルのハーフエッジ集合
         let mut he_curr = he_start;
-        let mut cycle_len = 0.0;
+        let mut boundary_len = 0.0;
 
         loop {
-            // 現在のハーフエッジの始点を追加
-            let v_curr = mesh.halfedges[he_curr].v_src(&mesh.faces);
-            boundary_v.push(v_curr);
-
-            // 現在のハーフエッジの長さを加算
-            cycle_len += mesh.halfedges[he_curr].length(mesh);
-
-            // 現在のハーフエッジを削除
+            boundary_cycle_he.insert(he_curr);
+            boundary_len += mesh.halfedges[he_curr].norm(mesh);
             boundary_he.remove(&he_curr);
 
-            // 次の境界ハーフエッジを計算
             let opp = mesh.halfedges[he_curr].h_opp;
-            let he_next = usize::try_from(-opp - 1).unwrap();
+            let he_next = usize::try_from(- opp - 1).unwrap();
 
-            // １周したら終了
             if he_next == he_start {
                 break;
             }
             he_curr = he_next;
         }
 
-        if cycle_len > max_boundary_len {
-            max_boundary_len = cycle_len;
-            max_boundary_vertices = boundary_v;
+        if boundary_len > max_boundary_len {
+            max_boundary_len = boundary_len;
+            longest_boundary_cycle_he = boundary_cycle_he;
         }
     }
-    max_boundary_vertices
+    longest_boundary_cycle_he
 }
 
-fn construct_laplacian_triplets(
+fn construct_laplacian_coo(
     mesh: &Mesh,
-    boundary_vertices: &Vec<usize>,
+    boundary_halfedges: &BTreeSet<usize>,
     digree: &Vec<usize>,
 ) -> CooMatrix<f64> {
     let n = mesh.vertices.len();
@@ -79,13 +73,14 @@ fn construct_laplacian_triplets(
         triplets.push(i, i, 1.0);
     }
 
-    for &bv in boundary_vertices {
-        let he_out = &mesh.halfedges[mesh.h_out[bv]];
-        triplets.push(
-            he_out.v_src(&mesh.faces),
-            he_out.v_tgt(&mesh.faces),
-            -1.0 / (digree[bv] as f64),
-        );
+    for (i, he) in mesh.halfedges.iter().enumerate() {
+        if !boundary_halfedges.contains(&i) {
+            triplets.push(
+                he.v_src(&mesh.faces),
+                he.v_tgt(&mesh.faces),
+                -1.0 / (digree[he.v_src(&mesh.faces)] as f64),
+            );
+        }
     }
     
     triplets
@@ -96,39 +91,24 @@ pub fn compute_nalgebra(
         x: &mut na::DVector<f64>,
         y: &mut na::DVector<f64>,
 ) {
-    let digree = calc_vertices_digee(&mesh);
-    let boundary_vertices = compute_max_length_boundary_vertices(&mesh);
+    let digree = calc_vertices_digree(&mesh);
+    let boundary_halfedges = compute_longest_boundary_cycle_halfedges(&mesh);
 
     //ラプラシアン疎行列を作成
     let n = mesh.vertices.len();
-    let triplets = construct_laplacian_triplets(&mesh, &boundary_vertices, &digree);    // COO
+    let triplets = construct_laplacian_coo(&mesh, &boundary_halfedges, &digree);    // COO
     let laplacian = CsrMatrix::from(&triplets);     // COO -> CSR
 
     // 右辺ベクトルを作成
     // let mut b: na::DMatrix<f64> = na::DMatrix::zeros(n, 2);
     let mut b_x = na::DVector::zeros(n);
     let mut b_y = na::DVector::zeros(n);
-    for (i, &bv) in boundary_vertices.iter().enumerate() {
-        let theta = 2.0 * PI * (i as f64) / (boundary_vertices.len() as f64);
-
+    for (i, &b_he) in boundary_halfedges.iter().enumerate() {
+        let theta = 2.0 * PI * (i as f64) / (boundary_halfedges.len() as f64);
         let (x, y) = (theta.cos(), theta.sin());
-        // match (x, y) {
-        //     (-1.0, _) => (x, 0.0),
-        //     (_, -1.0) => (1.0, y),
-        //     _         => (x,   y),
-        // };
+        let bv = mesh.halfedges[b_he].v_src(&mesh.faces);
         b_x[bv] = x;
         b_y[bv] = y;
-        // if b[(0, *bv)] == -1.0 {
-        //     b[(1, *bv)] = 0.0;
-        // }
-        // if b[(1, *bv)] == -1.0 {
-        //     b[(0, *bv)] = 1.0;
-        // }
     }
 
-    let tol = 1e-8;
-    let max_iters = 1_000;
-    *x = solve_sparse_cg(&laplacian, &b_x, tol, max_iters);
-    *y = solve_sparse_cg(&laplacian, &b_y, tol, max_iters);
 }

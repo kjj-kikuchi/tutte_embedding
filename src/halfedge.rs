@@ -49,7 +49,7 @@ impl Halfedge {
         ! self.is_boundary()
     }
 
-    pub fn length(&self, mesh: &Mesh) -> f64 {
+    pub fn norm(&self, mesh: &Mesh) -> f64 {
         let x0 = mesh.vertices[self.v_src(&mesh.faces)];
         let x1 = mesh.vertices[self.v_tgt(&mesh.faces)];
         (x0 - x1).norm()

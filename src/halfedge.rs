@@ -1,16 +1,19 @@
 use crate::mesh::Mesh;
 
-#[derive(Debug, PartialEq, Eq)]
+// pub enum HEType {
+//     Internal(usize),
+//     Boundary(usize),
+//     None,
+// }
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Halfedge {
     pub index: usize,
-    pub h_opp: isize
+    pub h_opp: isize,
 }
 
 impl Halfedge {
     pub fn new(he_idx: usize) -> Halfedge {
-        let index = he_idx;
-        let h_opp = -1;
-        Halfedge { index, h_opp }
+        Halfedge { index: he_idx, h_opp: 0 }
     }
     
     pub fn face(&self) -> usize {

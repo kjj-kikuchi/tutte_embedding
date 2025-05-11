@@ -7,7 +7,9 @@ pub mod halfedge;
 pub mod mesh;
 pub mod tutte_embedding;
 
+use file_io::write_obj;
 use mesh::Mesh;
+use tutte_embedding::compute_rsparse;
 
 fn main() {
     // 入力ファイル読み込み
@@ -18,15 +20,13 @@ fn main() {
     }
     let filename = &args[1];
 
-    println!("{}", filename);
-
+    // メッシュ構築
     let mut mesh = Mesh::from_obj(filename);
     mesh.construct_halfedge_list();
 
-    println!("Vertices : {}", mesh.vertices.len());
-    println!("Faces : {}", mesh.faces.len());
-    println!("Normals : {}", mesh.normal_vertex.len());
+    // tutte埋め込み計算
+    compute_rsparse(&mut mesh);
 
-    println!("{}", mesh.vertices[0].transpose());
-    println!("{}", mesh.faces[0].transpose());
+    // 出力
+    write_obj(&filename, &mesh).unwrap();
 }

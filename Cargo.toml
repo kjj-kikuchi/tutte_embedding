@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nalgebra = "0.32"
+nalgebra = "0.33.2"
 nalgebra-sparse = "0.1"
-del-ls = "0.1"
+rsparse = "1.2.1"
